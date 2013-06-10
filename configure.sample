@@ -1,0 +1,72 @@
+#!/usr/bin/env python
+# Configure script for generating makefiles.
+from fzconf import *
+
+# Default flags
+debug = True
+prefix = "/usr/local/"
+outdir = "bin/"
+intdir = "tmp/"
+cxx = "g++"
+cxxflags = ["-Wall"]
+cxxflags += ["-Winvalid-pch"]
+#cxxflags += ["-fno-rtti"]
+#cxxflags += ["-std=c++0x"]
+cxxflags_specific = {
+    "g++": [],
+    "clang++": ["-ferror-limit=5"],
+}
+pchext = {"g++": ".gch", "clang++": ".pch"}
+
+# Projects
+projects = (
+    Project(
+        "project-name",
+        "source-code.cpp",
+    ),
+)
+
+# Overrides
+args = Args()
+while args:
+    name, value = args.next()
+    if name == "--help":
+        print("\n".join((
+                "Supported flags:",
+                "  --prefix=XXX",
+                "  --debug=yes|no",
+        )))
+    elif name == "--prefix":
+        prefix = value or prefix
+    elif name == "--debug":
+        debug = value.lower() not in ("n", "no", "false", "f", "0")
+    else:
+        raise Exception("Unknown option: " + name)
+if debug:
+    cxxflags += ["-g"]
+else:
+    cxxflags += ["-DNDEBUG", "-O3"]
+
+# Generate makefile
+makefile = Makefile(macros={
+        "CXX": cxx,
+        "CXXFLAGS": cxxflags + cxxflags_specific[cxx],
+        "PCHEXT": pchext[cxx],
+        "PREFIX": prefix,
+        "OUTDIR": outdir,
+        "INTDIR": intdir,
+})
+makefile.import_projects(*projects)
+makefile.silent = set(["test"])
+makefile.save()
+
+# Create the directories (TODO: this functionality should be part of fzconf)
+import os
+try:
+    os.makedirs(outdir)
+except OSError:
+    pass
+try:
+    os.makedirs(intdir)
+except OSError:
+    pass
