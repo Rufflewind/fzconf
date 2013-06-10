@@ -114,7 +114,7 @@ class Project(object):
                 name, ext = os.path.splitext(inp)
 
                 # Compile C++
-                if ext in (".cpp",):
+                if ext in (".cc", ".cpp", ".cxx", ".c++"):
                     if not self.lang or self.lang == "c":
                         self.lang = "c++"
                     elif self.lang != "c++":
