@@ -39,28 +39,34 @@ class Args(object):
 class Project(object):
     def __init__(self, name, *inputs, **arguments):
         '''Creates a project.  Certains macros may be needed for the makefile
-        to work correctly depending on the project type, e.g. CXX, CXXFLAGS,
-        PCHEXT, OUTDIR, INTDIR, etc.
+        to work correctly depending on the project type, e.g. `CXX`,
+        `CXXFLAGS`, `PCHEXT`, `OUTDIR`, `INTDIR`, etc.
 
         @param name          Name of the final output file.
-        @param inputs        Input files (e.g. *.c or *.cpp sources).  Dependent
-                             header files are automatically searched and thus
-                             do not need to be included.
-        @param outdir        Output directory (default: $(OUTDIR)).
+        @param inputs        Input files (e.g. `*.c` or `*.cpp` sources).
+                             Dependent header files are automatically searched
+                             and thus do not need to be included.
+        @param outdir        Output directory (default: `"$(OUTDIR)"`).
+        @param outname       Output filename w/out dirname (default: `name`)
         @param intdir        Directory to store intermediate files (default:
-                             $(INTDIR)).
+                             `"$(INTDIR)"`).
         @param lang          Language of the project (default: autodetect).
-                             Supported languages: 'c++', 'c++-header' (PCH).
+                             Supported languages:
+                                 `"c"`
+                                 `"c++"`
+                                 `"c-header"` (precompiled header)
+                                 `"c++-header"` (precompiled header)
         @param postbuild     List of post-build commands.
         @param extdeps       List of external (non-generated) dependencies.
         @param outs          Additional output files to be cleaned up.
         @param ...flags      List of additional parameters given to the
-                             compiler.  The placeholder '...' can be either 'c'
-                             'cpp', or 'cxx'.
+                             compiler.  The placeholder `...` can be either `c`
+                             `cpp`, or `cxx`.
         '''
         self.name = name
         self.inputs = inputs
         self.outdir = arguments.get("outdir", "$(OUTDIR)")
+        self.outname = arguments.get("outname", self.name)
         self.intdir = arguments.get("intdir", "$(INTDIR)")
         self.lang = arguments.get("lang", None)
         self.postbuild = arguments.get("postbuild", ())
@@ -79,12 +85,13 @@ class Project(object):
 
         # This variable stores the relative path of the final output file.
         # (Modify this as needed if the output file is different.)
-        out = self.outdir + self.name
+        out = self.outdir + self.outname
 
         # Generate precompiled header
         if self.lang == "c-header" or self.lang == "c++-header":
             # This rule generates a header file that includes all the inputs
-            cmds = ["rm -f " + out]
+            cmds = [("test", self.outdir, "&&", "mkdir", "-p", self.outdir),
+                    ("rm", "-f", out)]
             deps = set()
             for inp in self.inputs:
                 if inp.startswith("<") and inp.endswith(">"):
@@ -99,7 +106,8 @@ class Project(object):
             out_pch = out + "$(PCHEXT)"
             self.rules[out_pch] = (
                 [out],
-                [self.cxx + ["-o", "$@", "-x", "c++-header", "-c", out]]
+                [{"c-header": self.cc, "c++-header": self.cxx}[self.lang]
+                 + ["-o", "$@", "-x", self.lang, "-c", out]]
             )
             self.outs.add(out_pch)
             out = out_pch
@@ -109,9 +117,9 @@ class Project(object):
 
             # Compilation stage (note that we don't necessarily know what
             # language the project is in yet)
-            ints = set()
+            self.ints = set()
             for inp in self.inputs:
-                name, ext = os.path.splitext(inp)
+                _, ext = os.path.splitext(inp)
 
                 # Compile C++
                 if ext in (".cc", ".cpp", ".cxx", ".c++"):
@@ -120,16 +128,16 @@ class Project(object):
                     elif self.lang != "c++":
                         raise Exception("Mixing '" + self.lang +
                                         "' with 'c++'.")
+                    self._proc_intermediate(self.cxx, inp)
 
-                    intermediate = self.intdir + name + ".o"
-                    if intermediate not in self.rules:
-                        deps = self._find_deps_cpp(inp)
-                        deps.update(self.extdeps)
-                        self.rules[intermediate] = (
-                            deps,
-                            [self.cxx + ["-o", "$@", "-c", inp]]
-                        )
-                        ints.add(intermediate)
+                # Compile C
+                elif ext in (".c",):
+                    if not self.lang:
+                        self.lang = "c"
+                    elif self.lang != "c" and self.lang != "c++":
+                        raise Exception("Mixing '" + self.lang +
+                                        "' with 'c'.")
+                    self._proc_intermediate(self.cc, inp)
 
                 # Future extensions: don't forget to add the 'extdeps'!
 
@@ -138,22 +146,16 @@ class Project(object):
 
             # Empty (custom) project
             if not self.lang:
-                out = self.name         # Don't need the 'outdir'
                 self.rules[out] = ([], [])
                 self.phonys.add(out)
 
             # Link C++
             elif self.lang == "c++":
-                deps = ints.copy()
-                deps.update(self.extdeps)
-                self.rules[out] = (
-                    deps,
-                    [self.cxx + ["-o", "$@"] + sorted(list(ints))]
-                )
-                self.outs.add(out)
-                self.outs.update(ints)
+                self._proc_linkage(self.cxx, out)
 
-            # Future extensions: don't forget to add the 'extdeps'!
+            # Link C
+            elif self.lang == "c":
+                self._proc_linkage(self.cc, out)
 
             else:
                 raise Exception("Unrecognized language: " + self.lang)
@@ -165,6 +167,29 @@ class Project(object):
 
         # Add post-build commands
         self.rules[out][1].extend(self.postbuild)
+
+    def _proc_intermediate(self, compiler, inp):
+        intfn = self.intdir + inp + ".o"
+        if intfn not in self.rules:
+            deps = self._find_deps_cpp(inp)
+            deps.update(self.extdeps)
+            self.rules[intfn] = (
+                deps,
+                [("mkdir", "-p", "`dirname $@`"),
+                 compiler + ["-o", "$@", "-c", inp]]
+            )
+            self.ints.add(intfn)
+
+    def _proc_linkage(self, compiler, out):
+        deps = self.ints.copy()
+        deps.update(self.extdeps)
+        self.rules[out] = (
+            deps,
+            [("mkdir", "-p", "`dirname $@`"),
+             compiler + ["-o", "$@"] + sorted(list(self.ints))]
+        )
+        self.outs.add(out)
+        self.outs.update(self.ints)
 
     def _find_deps_cpp(self, filename):
         '''Recursively finds all `#include` dependencies of a C/C++ file.
@@ -219,7 +244,7 @@ class Makefile(object):
             self.cleans.update(project.outs)
             self.phonys.update(project.phonys)
 
-    def save(self, filename="Makefile"):
+    def save(self, filename="makefile"):
         '''Saves the makefile to an actual file.  If a file already exists, it
         will be overwritten.
         '''
