@@ -12,10 +12,6 @@ cxxflags = ["-Wall"]
 cxxflags += ["-Winvalid-pch"]
 #cxxflags += ["-fno-rtti"]
 #cxxflags += ["-std=c++0x"]
-cxxflags_specific = {
-    "g++": [],
-    "clang++": ["-ferror-limit=5"],
-}
 pchext = {"g++": ".gch", "clang++": ".pch"}
 
 # Projects
@@ -50,23 +46,11 @@ else:
 # Generate makefile
 makefile = Makefile(macros={
         "CXX": cxx,
-        "CXXFLAGS": cxxflags + cxxflags_specific[cxx],
+        "CXXFLAGS": cxxflags_check(cxx, cxxflags),
         "PCHEXT": pchext[cxx],
         "PREFIX": prefix,
         "OUTDIR": outdir,
         "INTDIR": intdir,
 })
 makefile.import_projects(*projects)
-makefile.silent = set(["test"])
 makefile.save()
-
-# Create the directories (TODO: this functionality should be part of fzconf)
-import os
-try:
-    os.makedirs(outdir)
-except OSError:
-    pass
-try:
-    os.makedirs(intdir)
-except OSError:
-    pass

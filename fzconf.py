@@ -2,6 +2,8 @@
 # Simple build system for generating makefiles.
 import os, re, subprocess, sys
 
+_cxxflag_cache = {}
+
 def command_exists(command):
     '''Check if the (shell) command exists by executing it.'''
     try:
@@ -10,6 +12,67 @@ def command_exists(command):
         return True
     except OSError:
         return False
+
+def try_compile(command, lang, code=""):
+    '''Attempts to compile the given code.  Be sure to specify a language using
+    the `-x LANG` switch.'''
+    try:
+        with open(os.devnull, "w") as devnull:
+            tmpfile = "~~"
+            proc = subprocess.Popen(command + ["-x", lang,
+                                               "-o", tmpfile, "-c", "-"],
+                                    stdin=subprocess.PIPE,
+                                    stdout=devnull, stderr=devnull)
+            proc.communicate(code)
+            os.remove(tmpfile)
+            return proc.returncode == 0
+    except OSError:
+        return False
+
+def cxxflags_check(compiler, flags):
+    '''Checks (and converts, if appropriate) the compiler flags for
+    compatibility with the current system.'''
+    new_flags = []
+    try:
+        cache = _cxxflag_cache[compiler]
+    except KeyError:
+        cache = {}
+        _cxxflag_cache[compiler] = cache
+    for flag in flags:
+        try:
+            flag = cache[flag]
+            if flag:
+                new_flags.append(flag)
+            continue
+        except KeyError:
+            pass
+        old_flag = flag
+
+        if flag == "-std=c++11":
+            if not try_compile([compiler, flag], "c++"):
+                flag = "-std=c++0x"
+                if not try_compile([compiler, flag], "c++"):
+                    flag = ""
+                    sys.stderr.write("** Warning: no C++11 support.\n")
+                    cache["-std=c++0x"] = flag
+                else:
+                    sys.stderr.write("** Warning: limited C++11 support.\n")
+                cache[old_flag] = flag
+
+        if flag == "-std=c++0x":
+            if not try_compile([compiler, flag], "c++"):
+                flag = ""
+                sys.stderr.write("** Warning: no C++11 support.\n")
+                cache[old_flag] = flag
+
+        elif flag.startswith("-ferror-limit="):
+            if compiler != "clang++":
+                flag = ""
+                cache[old_flag] = flag
+
+        if flag:
+            new_flags.append(flag)
+    return new_flags
 
 class Args(object):
     '''Simple command-line argument parser.'''
@@ -61,7 +124,9 @@ class Project(object):
         @param outs          Additional output files to be cleaned up.
         @param ...flags      List of additional parameters given to the
                              compiler.  The placeholder `...` can be either `c`
-                             `cpp`, or `cxx`.
+                             `cpp`, `cxx`, or `link`.
+        @param precompiled   Name of the precompiled header project to be
+                             included.
         '''
         self.name = name
         self.inputs = inputs
@@ -70,16 +135,22 @@ class Project(object):
         self.intdir = arguments.get("intdir", "$(INTDIR)")
         self.lang = arguments.get("lang", None)
         self.postbuild = arguments.get("postbuild", ())
-        self.extdeps = arguments.get("extdeps", ())
+        self.extdeps = arguments.get("extdeps", [])
         self.rules = {}
         self.outs = set(arguments.get("outs", ()))
         self.phonys = set()
+        self.precompiled = arguments.get("precompiled", "")
+        self.linkflags = arguments.get("linkflags", [])
+        self.cppflags = arguments.get("cppflags", [])
+        if self.precompiled:
+            self.cppflags.extend(["-include", "$(INTDIR)" + self.precompiled])
+            self.extdeps.append("$(INTDIR)"  + self.precompiled + "$(PCHEXT)")
         self.cc = ["$(CC)", "$(CPPFLAGS)"]
-        self.cc.extend(arguments.get("cppflags", []))
+        self.cc.extend(self.cppflags)
         self.cc.append("$(CFLAGS)")
         self.cc.extend(arguments.get("cflags", []))
         self.cxx = ["$(CXX)", "$(CPPFLAGS)"]
-        self.cxx.extend(arguments.get("cppflags", []))
+        self.cxx.extend(self.cppflags)
         self.cxx.append("$(CXXFLAGS)")
         self.cxx.extend(arguments.get("cxxflags", []))
 
@@ -186,7 +257,9 @@ class Project(object):
         self.rules[out] = (
             deps,
             [("mkdir", "-p", "`dirname $@`"),
-             compiler + ["-o", "$@"] + sorted(list(self.ints))]
+             # Remove the "-std=" flag when linking
+             [f for f in compiler if not f.startswith("-std=")] +
+             self.linkflags + ["-o", "$@"] + sorted(list(self.ints))]
         )
         self.outs.add(out)
         self.outs.update(self.ints)
