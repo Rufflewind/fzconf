@@ -124,7 +124,8 @@ class Project(object):
         @param outs          Additional output files to be cleaned up.
         @param ...flags      List of additional parameters given to the
                              compiler.  The placeholder `...` can be either `c`
-                             `cpp`, `cxx`, or `link`.
+                             `cpp`, `cxx`, or `link`.  Linker flags are always
+                             placed at the end of the command.
         @param precompiled   Name of the precompiled header project to be
                              included.
         '''
@@ -259,7 +260,7 @@ class Project(object):
             [("mkdir", "-p", "`dirname $@`"),
              # Remove the "-std=" flag when linking
              [f for f in compiler if not f.startswith("-std=")] +
-             self.linkflags + ["-o", "$@"] + sorted(list(self.ints))]
+             ["-o", "$@"] + sorted(list(self.ints)) + self.linkflags]
         )
         self.outs.add(out)
         self.outs.update(self.ints)
@@ -276,15 +277,18 @@ class Project(object):
         while queue:
             path = queue.pop()
             workdir = os.path.abspath(os.path.dirname(path))
-            with open(path, "rt") as f:
-                for line in f:
-                    m = re.match(regex, line)
-                    if m:
-                        path = m.group(1)
-                        path = os.path.relpath(os.path.join(workdir, path))
-                        if path not in deps:
-                            deps.add(path)
-                            queue.append(path)
+            try:
+                with open(path, "rt") as f:
+                    for line in f:
+                        m = re.match(regex, line)
+                        if m:
+                            path = m.group(1)
+                            path = os.path.relpath(os.path.join(workdir, path))
+                            if path not in deps:
+                                deps.add(path)
+                                queue.append(path)
+            except IOError:
+                sys.stderr.write("** Warning: can't open: '" + path + "'\n")
         return deps
 
 class Makefile(object):
