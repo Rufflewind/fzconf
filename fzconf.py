@@ -127,7 +127,8 @@ class Project(object):
                              `cpp`, `cxx`, or `link`.  Linker flags are always
                              placed at the end of the command.
         @param precompiled   Name of the precompiled header project to be
-                             included.
+                             included.  Be sure to include a `PCHEXT` macro
+                             that defines the correct file extension.
         '''
         self.name = name
         self.inputs = inputs
