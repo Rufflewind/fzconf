@@ -169,11 +169,11 @@ class Project(object):
             for inp in self.inputs:
                 if inp.startswith("<") and inp.endswith(">"):
                     cmds.append("echo >>" + out +
-                               " '#include " + inp + "'")
+                                " '#include " + inp + "'")
                 else:
                     deps.update(self._find_deps_cpp(inp))
                     cmds.append("echo >>" + out +
-                               " '#include \"../" + inp + "\"'")
+                                " '#include \"" + inp + "\"'")
             self.rules[out] = (deps, cmds)
             self.outs.add(out)
             out_pch = out + "$(PCHEXT)"
@@ -322,7 +322,7 @@ class Makefile(object):
             self.cleans.update(project.outs)
             self.phonys.update(project.phonys)
 
-    def save(self, filename="makefile"):
+    def save(self, filename="Makefile"):
         '''Saves the makefile to an actual file.  If a file already exists, it
         will be overwritten.
         '''
