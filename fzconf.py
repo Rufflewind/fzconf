@@ -128,7 +128,8 @@ class Project(object):
                              placed at the end of the command.
         @param precompiled   Name of the precompiled header project to be
                              included.  Be sure to include a `PCHEXT` macro
-                             that defines the correct file extension.
+                             that defines the correct file extension.  Note
+                             that C code will not be compiled with it.
         '''
         self.name = name
         self.inputs = inputs
@@ -144,9 +145,6 @@ class Project(object):
         self.precompiled = arguments.get("precompiled", "")
         self.linkflags = arguments.get("linkflags", [])
         self.cppflags = arguments.get("cppflags", [])
-        if self.precompiled:
-            self.cppflags.extend(["-include", "$(INTDIR)" + self.precompiled])
-            self.extdeps.append("$(INTDIR)"  + self.precompiled + "$(PCHEXT)")
         self.cc = ["$(CC)", "$(CPPFLAGS)"]
         self.cc.extend(self.cppflags)
         self.cc.append("$(CFLAGS)")
@@ -155,6 +153,9 @@ class Project(object):
         self.cxx.extend(self.cppflags)
         self.cxx.append("$(CXXFLAGS)")
         self.cxx.extend(arguments.get("cxxflags", []))
+        if self.precompiled:
+            self.cxx.extend(["-include", "$(INTDIR)" + self.precompiled])
+            self.extdeps.append("$(INTDIR)"  + self.precompiled + "$(PCHEXT)")
 
         # This variable stores the relative path of the final output file.
         # (Modify this as needed if the output file is different.)
