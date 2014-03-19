@@ -119,7 +119,10 @@ class Project(object):
                                  `"c++"`
                                  `"c-header"` (precompiled header)
                                  `"c++-header"` (precompiled header)
-        @param postbuild     List of post-build commands.
+        @param postbuild     List of commands done after building.
+        @param postexec      List of commands done after `postbuild` (similar
+                             to `postbuild` but these are *always* run if the
+                             `name` is different from the output name).
         @param extdeps       List of external (non-generated) dependencies.
         @param outs          Additional output files to be cleaned up.
         @param ...flags      List of additional parameters given to the
@@ -138,6 +141,7 @@ class Project(object):
         self.intdir = arguments.get("intdir", "$(INTDIR)")
         self.lang = arguments.get("lang", None)
         self.postbuild = arguments.get("postbuild", ())
+        self.postexec = arguments.get("postexec", ())
         self.extdeps = arguments.get("extdeps", [])
         self.rules = {}
         self.outs = set(arguments.get("outs", ()))
@@ -239,8 +243,9 @@ class Project(object):
             self.rules[self.name] = ([out], [])
             self.phonys.add(self.name)
 
-        # Add post-build commands
+        # Add post-build & post-exec commands
         self.rules[out][1].extend(self.postbuild)
+        self.rules[self.name][1].extend(self.postexec)
 
     def _proc_intermediate(self, compiler, inp):
         intfn = self.intdir + inp + ".o"
