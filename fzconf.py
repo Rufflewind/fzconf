@@ -123,6 +123,8 @@ class Project(object):
         @param postexec      List of commands done after `postbuild` (similar
                              to `postbuild` but these are *always* run if the
                              `name` is different from the output name).
+        @param prereqs       List of external prerequisites that must be
+                             satisfied before the project even starts.
         @param extdeps       List of external (non-generated) dependencies.
         @param outs          Additional output files to be cleaned up.
         @param ...flags      List of additional parameters given to the
@@ -142,6 +144,7 @@ class Project(object):
         self.lang = arguments.get("lang", None)
         self.postbuild = arguments.get("postbuild", ())
         self.postexec = arguments.get("postexec", ())
+        self.prereqs = tuple(arguments.get("prereqs", ()))
         self.extdeps = arguments.get("extdeps", [])
         self.rules = {}
         self.outs = set(arguments.get("outs", ()))
@@ -170,7 +173,7 @@ class Project(object):
             # This rule generates a header file that includes all the inputs
             cmds = [("test", self.outdir, "&&", "mkdir", "-p", self.outdir),
                     ("rm", "-f", out)]
-            deps = set()
+            deps = set(self.prereqs)
             for inp in self.inputs:
                 if inp.startswith("<") and inp.endswith(">"):
                     cmds.append("echo >>" + out +
@@ -183,7 +186,7 @@ class Project(object):
             self.outs.add(out)
             out_pch = out + "$(PCHEXT)"
             self.rules[out_pch] = (
-                [out],
+                self.prereqs + (out,),
                 [{"c-header": self.cc, "c++-header": self.cxx}[self.lang]
                  + ["-o", "$@", "-x", self.lang, "-c", out]]
             )
@@ -224,7 +227,7 @@ class Project(object):
 
             # Empty (custom) project
             if not self.lang:
-                self.rules[out] = ([], [])
+                self.rules[out] = (self.prereqs, [])
                 self.phonys.add(out)
 
             # Link C++
@@ -240,7 +243,7 @@ class Project(object):
 
         # Add a phony alias rule if needed
         if self.name != out:
-            self.rules[self.name] = ([out], [])
+            self.rules[self.name] = (self.prereqs + (out,), [])
             self.phonys.add(self.name)
 
         # Add post-build & post-exec commands
@@ -251,6 +254,7 @@ class Project(object):
         intfn = self.intdir + inp + ".o"
         if intfn not in self.rules:
             deps = self._find_deps_cpp(inp)
+            deps.update(self.prereqs)
             deps.update(self.extdeps)
             self.rules[intfn] = (
                 deps,
@@ -261,6 +265,7 @@ class Project(object):
 
     def _proc_linkage(self, compiler, out):
         deps = self.ints.copy()
+        deps.update(self.prereqs)
         deps.update(self.extdeps)
         self.rules[out] = (
             deps,
